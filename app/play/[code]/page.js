@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { post, usePoll } from '@/lib/client';
 import * as snd from '@/lib/sound';
+import QRCode from 'qrcode';
+import { CFG } from '@/lib/config';
 import { BetBoard, Scores, fmt } from '@/components/ui';
 
 const BG = { answer: 'clue', bet: 'guess', reveal: 'reveal', over: 'over' };
@@ -16,7 +18,8 @@ export default function Play({ params }) {
   const { data: v, error, refresh } = usePoll(me ? `/api/room/${code}?t=${me.token}` : null, 1200);
   async function doJoin(e) {
     e.preventDefault(); setErr('');
-    try { const r = await post(`/api/room/${code}/join`, { name }); const s = { pid: r.pid, token: r.token }; localStorage.setItem('ww-me-' + code, JSON.stringify(s)); setMe(s); }
+    try { let ht = ''; try { ht = localStorage.getItem('ww-host-' + code) || ''; } catch {}
+    const r = await post(`/api/room/${code}/join`, { name, ht }); const s = { pid: r.pid, token: r.token }; localStorage.setItem('ww-me-' + code, JSON.stringify(s)); setMe(s); }
     catch (x) { setErr(x.message); }
   }
   if (!ready) return null;
@@ -28,14 +31,41 @@ export default function Play({ params }) {
   );
   if (error && !v) { if (/ไม่ได้อยู่ในห้อง/.test(error)) { localStorage.removeItem('ww-me-' + code); setMe(null); } return <main className="home"><p className="error">{error}</p></main>; }
   if (!v) return <main className="home"><p>กำลังโหลด…</p></main>;
-  if (!v.game) return (
-    <main className="lobby"><h1 className="title">ห้อง {code}</h1><p className="sub">รอเจ้าของห้องกดเริ่มเกม…</p>
-      <div className="card-box"><h2>ผู้เล่น</h2>{v.lobby.map((p) => <div key={p.id} className="pl">🧑 {p.name}{p.id === me.pid ? ' (คุณ)' : ''}</div>)}</div></main>
-  );
-  return <Game g={v.game} code={code} me={me} refresh={refresh} />;
+  if (!v.game) return <Lobby v={v} code={code} me={me} refresh={refresh} />;
+  return <Game g={v.game} code={code} me={me} refresh={refresh} canHost={v.canHost} />;
 }
 
-function Game({ g, code, me, refresh }) {
+function Lobby({ v, code, me, refresh }) {
+  const [qr, setQr] = useState('');
+  const [rounds, setRounds] = useState(CFG.defaultRounds);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { if (v.phoneOnly) QRCode.toDataURL(`${location.origin}/play/${code}`, { margin: 1, width: 300 }).then(setQr).catch(() => {}); }, [code, v.phoneOnly]);
+  const n = v.lobby.length;
+  async function start() { setMsg(''); try { await post(`/api/room/${code}/act`, { t: me.token, a: { type: 'start', turns: rounds } }); refresh(); } catch (e) { setMsg(e.message); } }
+  async function share() {
+    const url = `${location.origin}/play/${code}`;
+    try { if (navigator.share) await navigator.share({ title: 'Wits & Wagers', url }); else { await navigator.clipboard.writeText(url); setMsg('คัดลอกลิงก์แล้ว'); } } catch {}
+  }
+  return (
+    <main className="lobby">
+      <h1 className="title">ห้อง {code}</h1>
+      {v.phoneOnly && (<>
+        <p className="sub">โหมดมือถืออย่างเดียว · ให้เพื่อนสแกน QR หรือใส่รหัสห้อง</p>
+        {qr && <img src={qr} alt="QR" width="200" height="200" style={{ borderRadius: 12, background: '#fff' }} />}
+        <button className="chip" onClick={share}>🔗 ส่งลิงก์ชวนเพื่อน</button>
+      </>)}
+      <div className="card-box"><h2>ผู้เล่น ({n}/{CFG.maxPlayers})</h2>{v.lobby.map((p) => <div key={p.id} className="pl">🧑 {p.name}{p.id === me.pid ? ' (คุณ)' : ''}</div>)}</div>
+      {v.canHost ? (<>
+        <div className="sub">จำนวนรอบ ({CFG.doubleLast} รอบสุดท้ายคะแนนคูณ 2)</div>
+        <div className="row" style={{ justifyContent: 'center' }}>{CFG.roundsOptions.map((k) => <button key={k} className={'chip' + (rounds === k ? ' on' : '')} onClick={() => setRounds(k)}>{k} รอบ</button>)}</div>
+        <button className="btn big" disabled={n < CFG.minPlayers} onClick={start}>{n < CFG.minPlayers ? `ต้องมีอย่างน้อย ${CFG.minPlayers} คน` : 'เริ่มเกม'}</button>
+      </>) : <p className="sub">รอเจ้าของห้องกดเริ่มเกม…</p>}
+      {msg && <p className="error">{msg}</p>}
+    </main>
+  );
+}
+
+function Game({ g, code, me, refresh, canHost }) {
   const [val, setVal] = useState('');
   const [chips, setChips] = useState([]);
   const [msg, setMsg] = useState('');
@@ -104,6 +134,8 @@ function Game({ g, code, me, refresh }) {
       {ph !== 'over' && <div className="qtext" style={{ fontSize: '1.25rem' }}>{g.q.text}</div>}
       {showBoard && <BetBoard g={g} compact onPick={ph === 'bet' && !betted ? add : undefined} chips={ph === 'bet' ? chips : []} showBets={ph === 'reveal'} />}
       <div className="panel" style={{ margin: '8px 0' }}>{panel}</div>
+      {canHost && (ph === 'answer' || ph === 'bet') && <div className="row" style={{ justifyContent: 'center' }}><button className="chip" onClick={() => act({ type: 'force' })}>⏭ ข้ามคนที่ยังไม่ส่ง</button></div>}
+      {canHost && ph === 'over' && <button className="btn big" onClick={() => act({ type: 'reset' })}>เล่นอีกรอบ (กลับล็อบบี้)</button>}
       <Scores g={g} />
     </div>
   );

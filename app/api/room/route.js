@@ -11,5 +11,5 @@ export const POST = handle(async (req) => {
     if (bad === 'WRONG_PASS') await new Promise((r) => setTimeout(r, 800)); // หน่วงกันเดารหัส
     return { ok: false, status: 401, error: bad };
   }
-  return createRoom();
+  return createRoom({ phoneOnly: !!b.phoneOnly });
 });

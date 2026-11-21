@@ -19,3 +19,8 @@
 ## รัน/ดีพลอย
 - Vercel: import repo นี้ แล้วเชื่อม Upstash Redis (Storage) จากนั้น Redeploy · Redis key ขึ้นต้น `ww:`
 - รันในเครื่อง: `npm i && npm run dev` · ทดสอบ engine: `node scripts/test.mjs`
+
+
+## ความปลอดภัย (ล็อกการสร้างห้อง)
+ตั้งตัวแปร `FAMILY_PASSCODE` ใน Vercel (Settings → Environment Variables) แล้ว Redeploy ปุ่ม “สร้างห้องใหม่” จะถามรหัสผ่านก่อน (เครื่องที่กรอกถูกจะจำไว้) ส่วนผู้เล่นที่สแกน QR เข้าห้องไม่ต้องใส่อะไร ถ้าไม่ตั้งตัวแปรนี้ จะไม่ล็อก
+เว็บตั้งค่า `noindex` ไว้ ไม่ให้ Google เก็บ
